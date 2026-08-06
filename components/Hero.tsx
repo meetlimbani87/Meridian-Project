@@ -5,13 +5,8 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { clamp, lerp } from "@/lib/utils";
 
-// How much scroll distance (in viewport heights) drives the full sequence.
-// Shorter on mobile — 4.5 screens of scrolling just for the hero is a lot
-// on a phone, and a smaller reserved range is also less prone to ever
-// mismatching the pin-spacer's height when mobile browser chrome shows or
-// hides mid-scroll.
 function getScrollHeightMultiplier() {
-  return window.innerWidth < 768 ? 2.5 : 4.5;
+  return typeof window !== "undefined" && window.innerWidth < 768 ? 2.5 : 4.5;
 }
 
 if (typeof window !== "undefined") {
@@ -23,22 +18,16 @@ interface HeroProps {
   onProgress?: (percent: number) => void;
 }
 
-/**
- * The hero used to preload all 600 sequence frames as separate images and
- * draw them to a canvas — visually great, but ~140MB had to download before
- * anything played. It now scrubs a single compressed video's currentTime
- * against scroll position instead (video codecs compress the redundancy
- * between consecutive frames far better than 600 independent JPEGs), which
- * gets the same effect down to ~11MB. The whole file is fetched into memory
- * up front (see the effect below) so mid-scroll seeks never have to wait on
- * the network. See public/video/hero.mp4 and README.md for the ffmpeg
- * command used to (re)generate it from source-frames/hero-sequence/ if the
- * footage ever changes.
- */
 export default function Hero({ onReady, onProgress }: HeroProps) {
   const [ready, setReady] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
   const sectionRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imagesRef = useRef<HTMLImageElement[]>([]);
+  const currentFrameRef = useRef<number>(0);
+
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const leftTextRef = useRef<HTMLSpanElement | null>(null);
   const rightTextRef = useRef<HTMLSpanElement | null>(null);
@@ -46,83 +35,173 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
   const scrollCueRef = useRef<HTMLDivElement | null>(null);
   const readyFired = useRef(false);
 
-  // Fully fetch the video into memory first, then hand the browser a blob
-  // URL rather than the network URL. Scrubbing scroll can jump to any point
-  // in the clip at any time — if it's still streaming progressively, a jump
-  // ahead of what's downloaded so far means a stall while it fetches that
-  // range, which shows up as skipped/stuck frames. Once it's a blob, every
-  // seek is a pure local decode with no network involved.
+  // Canvas drawing helper for mobile image sequence
+  function renderCanvasFrame(index: number) {
+    const canvas = canvasRef.current;
+    const img = imagesRef.current[index];
+    if (!canvas || !img || !img.complete || !img.naturalWidth) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const cw = canvas.clientWidth || window.innerWidth;
+    const ch = canvas.clientHeight || window.innerHeight;
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
+
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    const canvasRatio = cw / ch;
+    const imgRatio = iw / ih;
+
+    let dw = cw;
+    let dh = ch;
+    let dx = 0;
+    let dy = 0;
+
+    if (imgRatio > canvasRatio) {
+      dw = ch * imgRatio;
+      dx = (cw - dw) / 2;
+    } else {
+      dh = cw / imgRatio;
+      dy = (ch - dh) / 2;
+    }
+
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.drawImage(img, dx, dy, dw, dh);
+  }
+
+  // Detect mobile viewport on mount
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    const mobile = window.innerWidth < 768;
+    setIsMobile(mobile);
+  }, []);
+
+  // Preload logic: MP4 video on Desktop/Tablet vs JPG Image Sequence on Mobile
+  useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    async function load() {
-      try {
-        const res = await fetch("/video/hero.mp4");
-        const total = Number(res.headers.get("content-length")) || 0;
-        const reader = res.body?.getReader();
-        const chunks: Uint8Array[] = [];
-        let received = 0;
+    if (isMobile) {
+      // MOBILE: Fetch sequence manifest and preload sampled JPEG frames for 60fps canvas blitting
+      async function loadMobileSequence() {
+        try {
+          const res = await fetch("/api/sequence-manifest");
+          const data = await res.json();
+          const files: string[] = data.files || [];
 
-        if (reader) {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            received += value.length;
-            if (total) {
-              onProgress?.(Math.min(99, Math.floor((received / total) * 100)));
-            }
+          if (cancelled || !files.length) return;
+
+          // Sample every 4th frame (150 total frames) for fast mobile preloading and smooth scrub
+          const SAMPLE_STEP = 4;
+          const sampledFiles = files.filter((_, i) => i % SAMPLE_STEP === 0);
+
+          const loadedImages: HTMLImageElement[] = [];
+          let loadedCount = 0;
+
+          sampledFiles.forEach((filename, idx) => {
+            const img = new Image();
+            img.src = `/sequence/${filename}`;
+            img.onload = () => {
+              if (cancelled) return;
+              loadedCount++;
+              onProgress?.(Math.min(99, Math.floor((loadedCount / sampledFiles.length) * 100)));
+
+              if (idx === 0) {
+                renderCanvasFrame(0);
+              }
+
+              if (loadedCount >= Math.min(12, sampledFiles.length) && !readyFired.current) {
+                readyFired.current = true;
+                onProgress?.(100);
+                setReady(true);
+                onReady?.();
+              }
+            };
+            loadedImages[idx] = img;
+          });
+          imagesRef.current = loadedImages;
+        } catch {
+          if (!cancelled && !readyFired.current) {
+            readyFired.current = true;
+            onProgress?.(100);
+            setReady(true);
+            onReady?.();
           }
         }
-
-        if (cancelled || !video) return;
-        const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
-        objectUrl = URL.createObjectURL(blob);
-        video.src = objectUrl;
-
-        video.addEventListener(
-          "loadedmetadata",
-          () => {
-            if (readyFired.current || cancelled) return;
-            readyFired.current = true;
-            onProgress?.(100);
-            setReady(true);
-            onReady?.();
-          },
-          { once: true }
-        );
-      } catch {
-        // Network hiccup or fetch unsupported in this context — fall back
-        // to letting the browser stream it directly rather than blocking
-        // the page forever.
-        if (cancelled || !video || readyFired.current) return;
-        video.src = "/video/hero.mp4";
-        video.addEventListener(
-          "loadedmetadata",
-          () => {
-            if (readyFired.current) return;
-            readyFired.current = true;
-            onProgress?.(100);
-            setReady(true);
-            onReady?.();
-          },
-          { once: true }
-        );
       }
-    }
 
-    load();
+      loadMobileSequence();
+    } else {
+      // DESKTOP/TABLET: Fetch MP4 video blob into memory for smooth video currentTime scrubbing
+      const video = videoRef.current;
+      if (!video) return;
+
+      async function loadVideo() {
+        try {
+          const res = await fetch("/video/hero.mp4");
+          const total = Number(res.headers.get("content-length")) || 0;
+          const reader = res.body?.getReader();
+          const chunks: Uint8Array[] = [];
+          let received = 0;
+
+          if (reader) {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              received += value.length;
+              if (total) {
+                onProgress?.(Math.min(99, Math.floor((received / total) * 100)));
+              }
+            }
+          }
+
+          if (cancelled || !video) return;
+          const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
+          objectUrl = URL.createObjectURL(blob);
+          video.src = objectUrl;
+
+          video.addEventListener(
+            "loadedmetadata",
+            () => {
+              if (readyFired.current || cancelled) return;
+              readyFired.current = true;
+              onProgress?.(100);
+              setReady(true);
+              onReady?.();
+            },
+            { once: true }
+          );
+        } catch {
+          if (cancelled || !video || readyFired.current) return;
+          video.src = "/video/hero.mp4";
+          video.addEventListener(
+            "loadedmetadata",
+            () => {
+              if (readyFired.current) return;
+              readyFired.current = true;
+              onProgress?.(100);
+              setReady(true);
+              onReady?.();
+            },
+            { once: true }
+          );
+        }
+      }
+
+      loadVideo();
+    }
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isMobile]);
 
+  // Window resize & orientation change observer
   useEffect(() => {
     let resizeTimer: ReturnType<typeof setTimeout>;
     let isScrolling = false;
@@ -140,7 +219,10 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     function handleResize() {
       if (isScrolling) return;
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => ScrollTrigger.refresh(), 200);
+      resizeTimer = setTimeout(() => {
+        if (isMobile) renderCanvasFrame(currentFrameRef.current);
+        ScrollTrigger.refresh();
+      }, 200);
     }
 
     window.addEventListener("resize", handleResize);
@@ -166,13 +248,13 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
       window.removeEventListener("load", handleResize);
       ro.disconnect();
     };
-  }, []);
+  }, [isMobile]);
 
+  // GSAP ScrollTrigger setup for both Canvas Image Scrub (Mobile) and Video Scrub (Desktop/Tablet)
   useLayoutEffect(() => {
     if (!ready) return;
     const section = sectionRef.current;
-    const video = videoRef.current;
-    if (!section || !video || !video.duration) return;
+    if (!section) return;
 
     if (document.body.style.overflow === "hidden") {
       document.body.style.overflow = "";
@@ -193,17 +275,36 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         onUpdate: (self) => {
           const progress = self.progress;
 
-          if (video.duration) {
-            const targetTime = clamp(progress * video.duration, 0, video.duration);
-            if (Math.abs(video.currentTime - targetTime) > 0.03) {
-              if ("fastSeek" in video && typeof (video as any).fastSeek === "function") {
-                (video as any).fastSeek(targetTime);
-              } else {
-                video.currentTime = targetTime;
+          if (isMobile) {
+            // MOBILE: Canvas Image Frame Scrubbing
+            const imgs = imagesRef.current;
+            if (imgs.length > 0) {
+              const frameIdx = clamp(
+                Math.floor(progress * (imgs.length - 1)),
+                0,
+                imgs.length - 1
+              );
+              if (frameIdx !== currentFrameRef.current) {
+                currentFrameRef.current = frameIdx;
+                renderCanvasFrame(frameIdx);
+              }
+            }
+          } else {
+            // DESKTOP/TABLET: MP4 Video currentTime Scrubbing
+            const video = videoRef.current;
+            if (video && video.duration) {
+              const targetTime = clamp(progress * video.duration, 0, video.duration);
+              if (Math.abs(video.currentTime - targetTime) > 0.03) {
+                if ("fastSeek" in video && typeof (video as any).fastSeek === "function") {
+                  (video as any).fastSeek(targetTime);
+                } else {
+                  video.currentTime = targetTime;
+                }
               }
             }
           }
 
+          // Title + Subtitle opacity and transform animations
           const TEXT_HOLD = 0.05;
           const TEXT_FADE_END = 0.42;
           const textProgress = clamp(
@@ -248,7 +349,7 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     }, section);
 
     return () => ctx.revert();
-  }, [ready]);
+  }, [ready, isMobile]);
 
   return (
     <section
@@ -258,15 +359,23 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
       aria-label="Meridian Estates introduction"
       data-cursor-theme="dark"
     >
-      <video
-        ref={videoRef}
-        className="absolute inset-0 h-full w-full object-cover"
-        poster="/poster.jpg"
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-      />
+      {isMobile ? (
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full object-cover"
+          aria-hidden="true"
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          className="absolute inset-0 h-full w-full object-cover"
+          poster="/poster.jpg"
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+        />
+      )}
 
       <div
         ref={overlayRef}
