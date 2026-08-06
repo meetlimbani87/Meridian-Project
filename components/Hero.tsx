@@ -16,9 +16,11 @@ if (typeof window !== "undefined") {
 interface HeroProps {
   onReady?: () => void;
   onProgress?: (percent: number) => void;
+  useCanvasSequence?: boolean;
 }
 
-export default function Hero({ onReady, onProgress }: HeroProps) {
+export default function Hero({ onReady, onProgress, useCanvasSequence = true }: HeroProps) {
+  const [mounted, setMounted] = useState(false);
   const [ready, setReady] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -28,6 +30,9 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
   const imagesRef = useRef<HTMLImageElement[]>([]);
   const currentFrameRef = useRef<number>(0);
 
+  const seekingLockRef = useRef<boolean>(false);
+  const pendingSeekTimeRef = useRef<number | null>(null);
+
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const leftTextRef = useRef<HTMLSpanElement | null>(null);
   const rightTextRef = useRef<HTMLSpanElement | null>(null);
@@ -35,25 +40,30 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
   const scrollCueRef = useRef<HTMLDivElement | null>(null);
   const readyFired = useRef(false);
 
-  // Initialize and keep canvas internal pixel buffer sized properly without clearing mid-scroll
+  // Initialize canvas internal pixel buffer with full Device Pixel Ratio (DPR) for 4K / Retina sharpness
   function setupCanvasSize() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    if (Math.abs(canvas.width - w) > 10 || Math.abs(canvas.height - h) > 10) {
+    const dpr = typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 2) : 1;
+    const w = Math.round(window.innerWidth * dpr);
+    const h = Math.round(window.innerHeight * dpr);
+
+    if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
     }
   }
 
-  // Canvas drawing helper for mobile image sequence — never mutates canvas width/height during frame renders
+  // Canvas drawing helper for image sequence — renders high-resolution pixel-perfect frames
   function renderCanvasFrame(index: number) {
     const canvas = canvasRef.current;
     const img = imagesRef.current[index];
     if (!canvas || !img || !img.complete || !img.naturalWidth) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     const cw = canvas.width || window.innerWidth;
     const ch = canvas.height || window.innerHeight;
@@ -80,22 +90,25 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     ctx.drawImage(img, dx, dy, dw, dh);
   }
 
-  // Detect mobile viewport on mount
+  // Detect mobile viewport after client mount (prevents SSR hydration mismatch #418)
   useEffect(() => {
+    setMounted(true);
     const mobile = window.innerWidth < 768;
     setIsMobile(mobile);
   }, []);
 
-  // Preload logic: MP4 video on Desktop/Tablet vs JPG Image Sequence on Mobile
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
+  const activeCanvasMode = true;
 
-    if (isMobile) {
+  // Preload logic: High-resolution JPG Image Sequence (Canvas Mode)
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+
+    if (activeCanvasMode) {
       setupCanvasSize();
 
-      // MOBILE: Fetch sequence manifest and preload sampled JPEG frames for 60fps canvas blitting
-      async function loadMobileSequence() {
+      // Fetch sequence manifest and preload sampled JPEG frames for 120fps canvas blitting
+      async function loadSequence() {
         try {
           const res = await fetch("/api/sequence-manifest");
           const data = await res.json();
@@ -103,8 +116,8 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
 
           if (cancelled || !files.length) return;
 
-          // Sample every 4th frame (150 total frames) for fast mobile preloading and smooth scrub
-          const SAMPLE_STEP = 4;
+          // For 602 frames: desktop samples every 2nd frame (301 frames), mobile samples every 4th frame (150 frames)
+          const SAMPLE_STEP = isMobile ? 4 : 2;
           const sampledFiles = files.filter((_, i) => i % SAMPLE_STEP === 0);
 
           const loadedImages: HTMLImageElement[] = [];
@@ -112,7 +125,7 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
 
           sampledFiles.forEach((filename, idx) => {
             const img = new Image();
-            img.src = `/sequence/${filename}`;
+            img.src = `/sequence/${filename}?v=4`;
             img.onload = () => {
               if (cancelled) return;
               loadedCount++;
@@ -142,77 +155,18 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         }
       }
 
-      loadMobileSequence();
-    } else {
-      // DESKTOP/TABLET: Fetch MP4 video blob into memory for smooth video currentTime scrubbing
-      const video = videoRef.current;
-      if (!video) return;
-
-      async function loadVideo() {
-        try {
-          const res = await fetch("/video/hero.mp4");
-          const total = Number(res.headers.get("content-length")) || 0;
-          const reader = res.body?.getReader();
-          const chunks: Uint8Array[] = [];
-          let received = 0;
-
-          if (reader) {
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              chunks.push(value);
-              received += value.length;
-              if (total) {
-                onProgress?.(Math.min(99, Math.floor((received / total) * 100)));
-              }
-            }
-          }
-
-          if (cancelled || !video) return;
-          const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
-          objectUrl = URL.createObjectURL(blob);
-          video.src = objectUrl;
-
-          video.addEventListener(
-            "loadedmetadata",
-            () => {
-              if (readyFired.current || cancelled) return;
-              readyFired.current = true;
-              onProgress?.(100);
-              setReady(true);
-              onReady?.();
-            },
-            { once: true }
-          );
-        } catch {
-          if (cancelled || !video || readyFired.current) return;
-          video.src = "/video/hero.mp4";
-          video.addEventListener(
-            "loadedmetadata",
-            () => {
-              if (readyFired.current) return;
-              readyFired.current = true;
-              onProgress?.(100);
-              setReady(true);
-              onReady?.();
-            },
-            { once: true }
-          );
-        }
-      }
-
-      loadVideo();
+      loadSequence();
     }
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile]);
+  }, [activeCanvasMode, mounted]);
 
   // Window resize & orientation change observer
   useEffect(() => {
+    if (!mounted) return;
     let resizeTimer: ReturnType<typeof setTimeout>;
     let isScrolling = false;
     let scrollTimeout: ReturnType<typeof setTimeout>;
@@ -230,7 +184,7 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
       if (isScrolling) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        if (isMobile) {
+        if (activeCanvasMode) {
           setupCanvasSize();
           renderCanvasFrame(currentFrameRef.current);
         }
@@ -261,11 +215,11 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
       window.removeEventListener("load", handleResize);
       ro.disconnect();
     };
-  }, [isMobile]);
+  }, [activeCanvasMode, mounted]);
 
-  // GSAP ScrollTrigger setup for both Canvas Image Scrub (Mobile) and Video Scrub (Desktop/Tablet)
+  // GSAP ScrollTrigger setup for Canvas Image Scrub
   useLayoutEffect(() => {
-    if (!ready) return;
+    if (!ready || !mounted) return;
     const section = sectionRef.current;
     if (!section) return;
 
@@ -282,44 +236,29 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         pin: true,
         pinSpacing: true,
         pinType: isMobile ? "fixed" : "transform",
-        scrub: isMobile ? true : 0.4,
+        scrub: true,
         anticipatePin: 1,
         invalidateOnRefresh: true,
         onUpdate: (self) => {
           const progress = self.progress;
 
-          if (isMobile) {
-            // MOBILE: Canvas Image Frame Scrubbing
-            const imgs = imagesRef.current;
-            if (imgs.length > 0) {
-              const frameIdx = clamp(
-                Math.floor(progress * (imgs.length - 1)),
-                0,
-                imgs.length - 1
-              );
-              if (frameIdx !== currentFrameRef.current) {
-                currentFrameRef.current = frameIdx;
-                renderCanvasFrame(frameIdx);
-              }
-            }
-          } else {
-            // DESKTOP/TABLET: MP4 Video currentTime Scrubbing
-            const video = videoRef.current;
-            if (video && video.duration) {
-              const targetTime = clamp(progress * video.duration, 0, video.duration);
-              if (Math.abs(video.currentTime - targetTime) > 0.03) {
-                if ("fastSeek" in video && typeof (video as any).fastSeek === "function") {
-                  (video as any).fastSeek(targetTime);
-                } else {
-                  video.currentTime = targetTime;
-                }
-              }
+          // CANVAS: Image Frame Scrubbing
+          const imgs = imagesRef.current;
+          if (imgs.length > 0) {
+            const frameIdx = clamp(
+              Math.floor(progress * (imgs.length - 1)),
+              0,
+              imgs.length - 1
+            );
+            if (frameIdx !== currentFrameRef.current) {
+              currentFrameRef.current = frameIdx;
+              renderCanvasFrame(frameIdx);
             }
           }
 
-          // Title + Subtitle opacity and transform animations
-          const TEXT_HOLD = 0.05;
-          const TEXT_FADE_END = 0.42;
+          // Title + Subtitle opacity and transform animations (cleaned up by 1/4th of sequence)
+          const TEXT_HOLD = 0.02;
+          const TEXT_FADE_END = 0.25;
           const textProgress = clamp(
             (progress - TEXT_HOLD) / (TEXT_FADE_END - TEXT_HOLD),
             0,
@@ -362,7 +301,7 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     }, section);
 
     return () => ctx.revert();
-  }, [ready, isMobile]);
+  }, [ready, isMobile, activeCanvasMode, mounted]);
 
   return (
     <section
@@ -372,23 +311,11 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
       aria-label="Meridian Estates introduction"
       data-cursor-theme="dark"
     >
-      {isMobile ? (
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 h-full w-full object-cover"
-          aria-hidden="true"
-        />
-      ) : (
-        <video
-          ref={videoRef}
-          className="absolute inset-0 h-full w-full object-cover"
-          poster="/poster.jpg"
-          muted
-          playsInline
-          preload="auto"
-          aria-hidden="true"
-        />
-      )}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full object-cover"
+        aria-hidden="true"
+      />
 
       <div
         ref={overlayRef}

@@ -39,8 +39,15 @@ export async function GET() {
 
   withNumbers.sort((a, b) => a.num - b.num || a.name.localeCompare(b.name));
 
-  return NextResponse.json({
-    files: withNumbers.map((f) => f.name),
-    count: withNumbers.length,
-  });
+  return NextResponse.json(
+    {
+      files: withNumbers.map((f) => f.name),
+      count: withNumbers.length,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      },
+    }
+  );
 }

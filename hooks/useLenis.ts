@@ -11,8 +11,9 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Sets up Lenis smooth scroll and syncs it with GSAP's ticker so that
- * ScrollTrigger stays perfectly in step with the smoothed scroll position.
+ * Sets up Lenis smooth scroll and syncs it with GSAP's ticker.
+ * Pauses Lenis during native scrollbar thumb dragging to eliminate
+ * any tug-of-war desync or visual section shaking.
  */
 export function useLenis() {
   const lenisRef = useRef<Lenis | null>(null);
@@ -27,23 +28,60 @@ export function useLenis() {
     });
     lenisRef.current = lenis;
 
-    // Keep ScrollTrigger (which pins/scrubs the Hero canvas) perfectly in
-    // step with Lenis's smoothed scroll position — otherwise pinning fights
-    // the smoothing and scroll feels stuck/glitchy.
     lenis.on("scroll", ScrollTrigger.update);
 
-    // gsap.ticker reports `time` in SECONDS, but lenis.raf() expects a
-    // millisecond timestamp (like performance.now()) to compute its easing
-    // deltas. Without the *1000 conversion, Lenis sees almost no elapsed
-    // time each frame, so its eased scroll position barely moves — which is
-    // exactly what "won't scroll / glitches" looks like.
     function raf(time: number) {
-      lenis.raf(time * 1000);
+      if (lenisRef.current && !lenisRef.current.isStopped) {
+        lenisRef.current.raf(time * 1000);
+      }
     }
     gsap.ticker.add(raf);
     gsap.ticker.lagSmoothing(0);
 
+    let isDraggingScrollbar = false;
+
+    // Detect when mouse/pointer interacts with native scrollbar region
+    function onPointerDown(e: PointerEvent | MouseEvent) {
+      const scrollbarWidth = 30;
+      const isRightScrollbar = e.clientX >= document.documentElement.clientWidth - scrollbarWidth;
+      const isLeftScrollbar = e.clientX <= scrollbarWidth;
+
+      if (isRightScrollbar || isLeftScrollbar) {
+        isDraggingScrollbar = true;
+        if (lenisRef.current) {
+          lenisRef.current.stop();
+        }
+      }
+    }
+
+    function onPointerUp() {
+      if (isDraggingScrollbar) {
+        isDraggingScrollbar = false;
+        if (lenisRef.current) {
+          lenisRef.current.scrollTo(window.scrollY, { immediate: true });
+          lenisRef.current.start();
+        }
+      }
+    }
+
+    function onScroll() {
+      if (isDraggingScrollbar) {
+        ScrollTrigger.update();
+      }
+    }
+
+    window.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+    window.addEventListener("mousedown", onPointerDown, { capture: true, passive: true });
+    window.addEventListener("pointerup", onPointerUp, { capture: true, passive: true });
+    window.addEventListener("mouseup", onPointerUp, { capture: true, passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
+
     return () => {
+      window.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      window.removeEventListener("mousedown", onPointerDown, { capture: true });
+      window.removeEventListener("pointerup", onPointerUp, { capture: true });
+      window.removeEventListener("mouseup", onPointerUp, { capture: true });
+      window.removeEventListener("scroll", onScroll);
       gsap.ticker.remove(raf);
       lenis.destroy();
     };

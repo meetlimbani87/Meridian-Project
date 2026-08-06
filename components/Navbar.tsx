@@ -41,7 +41,9 @@ export default function Navbar() {
   return (
     <header
       className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-        scrolled || menuOpen ? "glass-dark py-4" : "bg-gradient-to-b from-black/45 via-black/15 to-transparent py-7"
+        scrolled || menuOpen
+          ? "bg-[#16130F]/85 backdrop-blur-lg border-b border-white/10 py-4 shadow-2xl"
+          : "bg-gradient-to-b from-black/45 via-black/15 to-transparent py-7"
       }`}
     >
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 lg:px-10">
