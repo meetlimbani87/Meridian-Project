@@ -1,7 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useSequenceFrames, frameAt } from "@/lib/SequenceManifestContext";
 
 const TESTIMONIALS = [
   {
@@ -9,29 +8,27 @@ const TESTIMONIALS = [
     role: "Villa Aurea, Dubai",
     quote:
       "Meridian understood the life we wanted before we could fully describe it ourselves. The home feels like it was always meant to be there.",
-    fraction: 0,
+    image: "/projects/villa-aurea.jpg",
   },
   {
     name: "Daniel Whitfield",
     role: "Casa Marbella, Spain",
     quote:
       "From the first sketch to the final key, the process felt considered rather than transactional. Every detail earns its place.",
-    fraction: 0.5,
+    image: "/projects/casa-marbella.jpg",
   },
   {
     name: "Amara Osei",
     role: "The Olive Estate, Italy",
     quote:
       "The interiors team has an extraordinary eye. Our home feels calm, warm, and entirely our own.",
-    fraction: 0.9,
+    image: "/projects/testimonial-olive-estate.jpg",
   },
 ];
 
 const easeExpo = [0.16, 1, 0.3, 1] as const;
 
 export default function Testimonials() {
-  const frames = useSequenceFrames();
-
   return (
     <section id="testimonials" className="bg-ivory px-6 py-24 lg:px-10" data-cursor-theme="light">
       <div className="mx-auto max-w-7xl">
@@ -59,15 +56,12 @@ export default function Testimonials() {
                 &ldquo;{t.quote}&rdquo;
               </blockquote>
               <figcaption className="mt-8 flex items-center gap-4">
-                {frameAt(frames, t.fraction) ? (
-                  <img
-                    src={frameAt(frames, t.fraction)}
-                    alt={t.name}
-                    className="h-12 w-12 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="h-12 w-12 animate-pulse rounded-full bg-taupe/20" />
-                )}
+                <img
+                  src={t.image}
+                  alt={t.name}
+                  loading="lazy"
+                  className="h-12 w-12 rounded-full object-cover"
+                />
                 <div>
                   <div className="text-sm font-semibold text-charcoal">{t.name}</div>
                   <div className="text-xs text-taupe">{t.role}</div>

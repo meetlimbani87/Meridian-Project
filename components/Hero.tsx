@@ -1,126 +1,217 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { clamp, lerp } from "@/lib/utils";
 
 // How much scroll distance (in viewport heights) drives the full sequence.
-const SCROLL_HEIGHT_MULTIPLIER = 4.5;
+// Shorter on mobile — 4.5 screens of scrolling just for the hero is a lot
+// on a phone, and a smaller reserved range is also less prone to ever
+// mismatching the pin-spacer's height when mobile browser chrome shows or
+// hides mid-scroll.
+function getScrollHeightMultiplier() {
+  return window.innerWidth < 768 ? 2.5 : 4.5;
+}
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
 interface HeroProps {
-  images: HTMLImageElement[];
-  loaded: boolean;
-  failedCount?: number;
   onReady?: () => void;
+  onProgress?: (percent: number) => void;
 }
 
-export default function Hero({ images, loaded, failedCount = 0, onReady }: HeroProps) {
-  const totalFrames = images.length;
+/**
+ * The hero used to preload all 600 sequence frames as separate images and
+ * draw them to a canvas — visually great, but ~140MB had to download before
+ * anything played. It now scrubs a single compressed video's currentTime
+ * against scroll position instead (video codecs compress the redundancy
+ * between consecutive frames far better than 600 independent JPEGs), which
+ * gets the same effect down to ~11MB. The whole file is fetched into memory
+ * up front (see the effect below) so mid-scroll seeks never have to wait on
+ * the network. See public/video/hero.mp4 and README.md for the ffmpeg
+ * command used to (re)generate it from source-frames/hero-sequence/ if the
+ * footage ever changes.
+ */
+export default function Hero({ onReady, onProgress }: HeroProps) {
+  const [ready, setReady] = useState(false);
   const sectionRef = useRef<HTMLElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const leftTextRef = useRef<HTMLSpanElement | null>(null);
   const rightTextRef = useRef<HTMLSpanElement | null>(null);
   const subtitleRef = useRef<HTMLParagraphElement | null>(null);
   const scrollCueRef = useRef<HTMLDivElement | null>(null);
+  const readyFired = useRef(false);
 
-  const currentFrame = useRef(0);
-  const drawnOnce = useRef(false);
-
-  // Draws a given frame to the canvas using cover-fit, respecting DPR.
-  function drawFrame(index: number) {
-    const canvas = canvasRef.current;
-    const img = images[index];
-    if (!canvas || !img || !img.complete || img.naturalWidth === 0) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const cw = canvas.clientWidth;
-    const ch = canvas.clientHeight;
-    if (canvas.width !== cw * dpr || canvas.height !== ch * dpr) {
-      canvas.width = cw * dpr;
-      canvas.height = ch * dpr;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cw, ch);
-
-    const imgRatio = img.naturalWidth / img.naturalHeight;
-    const canvasRatio = cw / ch;
-    let drawW: number, drawH: number, dx: number, dy: number;
-
-    if (imgRatio > canvasRatio) {
-      drawH = ch;
-      drawW = ch * imgRatio;
-      dx = (cw - drawW) / 2;
-      dy = 0;
-    } else {
-      drawW = cw;
-      drawH = cw / imgRatio;
-      dx = 0;
-      dy = (ch - drawH) / 2;
-    }
-    ctx.drawImage(img, dx, dy, drawW, drawH);
-    drawnOnce.current = true;
-  }
-
+  // Fully fetch the video into memory first, then hand the browser a blob
+  // URL rather than the network URL. Scrubbing scroll can jump to any point
+  // in the clip at any time — if it's still streaming progressively, a jump
+  // ahead of what's downloaded so far means a stall while it fetches that
+  // range, which shows up as skipped/stuck frames. Once it's a blob, every
+  // seek is a pure local decode with no network involved.
   useEffect(() => {
-    if (loaded && !drawnOnce.current) {
-      drawFrame(0);
-      onReady?.();
+    const video = videoRef.current;
+    if (!video) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    async function load() {
+      try {
+        const res = await fetch("/video/hero.mp4");
+        const total = Number(res.headers.get("content-length")) || 0;
+        const reader = res.body?.getReader();
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+
+        if (reader) {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            if (total) {
+              onProgress?.(Math.min(99, Math.floor((received / total) * 100)));
+            }
+          }
+        }
+
+        if (cancelled || !video) return;
+        const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
+        objectUrl = URL.createObjectURL(blob);
+        video.src = objectUrl;
+
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            if (readyFired.current || cancelled) return;
+            readyFired.current = true;
+            onProgress?.(100);
+            setReady(true);
+            onReady?.();
+          },
+          { once: true }
+        );
+      } catch {
+        // Network hiccup or fetch unsupported in this context — fall back
+        // to letting the browser stream it directly rather than blocking
+        // the page forever.
+        if (cancelled || !video || readyFired.current) return;
+        video.src = "/video/hero.mp4";
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            if (readyFired.current) return;
+            readyFired.current = true;
+            onProgress?.(100);
+            setReady(true);
+            onReady?.();
+          },
+          { once: true }
+        );
+      }
     }
+
+    load();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
+  }, []);
 
   useEffect(() => {
+    let resizeTimer: ReturnType<typeof setTimeout>;
     function handleResize() {
-      drawFrame(currentFrame.current);
+      clearTimeout(resizeTimer);
+      // Debounced: mobile browsers fire several resize events in a row as
+      // their address bar shows/hides during scroll, and refreshing
+      // ScrollTrigger on every single one is wasteful and can itself cause
+      // the pin measurement to briefly desync.
+      resizeTimer = setTimeout(() => ScrollTrigger.refresh(), 150);
     }
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
+    window.addEventListener("orientationchange", handleResize);
+
+    // The pin's scroll distance is locked in as soon as the hero video is
+    // ready, but the sections *below* the hero (showcase images, project
+    // thumbnails, etc.) can still be loading in and changing the page's
+    // total height at that point. Nothing was watching for that, so the
+    // pin-spacer stayed sized for the shorter, stale document — leaving a
+    // gap at the bottom (and, once anything reflows horizontally, the
+    // right) until some unrelated resize event — e.g. a mobile browser's
+    // address bar collapsing once you scroll far enough — happened to
+    // trigger a refresh. A ResizeObserver on <body> catches every one of
+    // those late layout changes directly, so the fix no longer depends on
+    // the user scrolling first.
+    let roTimer: ReturnType<typeof setTimeout>;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(roTimer);
+      roTimer = setTimeout(() => ScrollTrigger.refresh(), 150);
+    });
+    ro.observe(document.body);
+
+    // Also catches any remaining async assets (fonts, below-the-fold
+    // images not covered by the observer timing) once everything settles.
+    window.addEventListener("load", handleResize);
+
+    return () => {
+      clearTimeout(resizeTimer);
+      clearTimeout(roTimer);
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+      window.removeEventListener("load", handleResize);
+      ro.disconnect();
+    };
+  }, []);
 
   useLayoutEffect(() => {
-    if (!loaded || totalFrames === 0) return;
+    if (!ready) return;
     const section = sectionRef.current;
-    if (!section) return;
+    const video = videoRef.current;
+    if (!section || !video || !video.duration) return;
 
     const ctx = gsap.context(() => {
-      const scrollLength = window.innerHeight * SCROLL_HEIGHT_MULTIPLIER;
-
       const st = ScrollTrigger.create({
         trigger: section,
         start: "top top",
-        end: `+=${scrollLength}`,
+        // A function, not a static string — ScrollTrigger.refresh() (fired
+        // on resize/orientation change) re-invokes this against the
+        // *current* viewport height, instead of forever reusing whatever
+        // height happened to be current the moment the trigger was first
+        // created. Without this, a resize after mount (e.g. DevTools
+        // device toolbar, or a mobile browser's address bar changing the
+        // viewport) leaves the pin release point stale, so the pin can let
+        // go too early and expose the spacer's raw background as a gap.
+        end: () => `+=${window.innerHeight * getScrollHeightMultiplier()}`,
         pin: true,
         pinSpacing: true,
+        // "fixed" (the default) removes the pinned element from normal flow
+        // and pads it to compensate for the browser's default scrollbar
+        // width — but our scrollbar is deliberately thinner (see the
+        // scrollbar-width: thin rule in globals.css), so that compensation
+        // over-pads and leaves a bare strip of background on the right for
+        // as long as the hero is pinned. "transform" keeps the pinned
+        // element inside normal flow instead, so it just inherits the
+        // actual current width and never needs that compensation at all.
+        pinType: "transform",
         scrub: 0.4,
         anticipatePin: 1,
+        invalidateOnRefresh: true,
         onUpdate: (self) => {
           const progress = self.progress;
 
-          // Drive the image sequence across the full scroll range.
-          const frameIndex = clamp(
-            Math.round(progress * (totalFrames - 1)),
-            0,
-            totalFrames - 1
-          );
-          if (frameIndex !== currentFrame.current) {
-            currentFrame.current = frameIndex;
-          }
-          drawFrame(frameIndex);
+          // Drive the video across the full scroll range by seeking it,
+          // rather than swapping canvas frames.
+          video.currentTime = clamp(progress * video.duration, 0, video.duration);
 
           // Title + subtitle hold fully visible early on, then fade out by
-          // roughly frame 200-300 (progress ~0.33-0.5) rather than
-          // disappearing in the first 30% of the whole 600-frame sequence.
+          // roughly a third of the way through the scroll range.
           const TEXT_HOLD = 0.05; // stays fully visible until ~5% scroll
-          const TEXT_FADE_END = 0.42; // fully faded by ~42% scroll (~frame 250)
+          const TEXT_FADE_END = 0.42; // fully faded by ~42% scroll
           const textProgress = clamp(
             (progress - TEXT_HOLD) / (TEXT_FADE_END - TEXT_HOLD),
             0,
@@ -163,18 +254,23 @@ export default function Hero({ images, loaded, failedCount = 0, onReady }: HeroP
     }, section);
 
     return () => ctx.revert();
-  }, [loaded]);
+  }, [ready]);
 
   return (
     <section
       ref={sectionRef}
       className="relative h-screen w-full overflow-hidden bg-charcoal"
+      style={{ height: "100dvh" }}
       aria-label="Meridian Estates introduction"
       data-cursor-theme="dark"
     >
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full"
+      <video
+        ref={videoRef}
+        className="absolute inset-0 h-full w-full object-cover"
+        poster="/poster.jpg"
+        muted
+        playsInline
+        preload="auto"
         aria-hidden="true"
       />
 
@@ -198,22 +294,10 @@ export default function Hero({ images, loaded, failedCount = 0, onReady }: HeroP
           </span>
         </h1>
 
-        <p
-          ref={subtitleRef}
-          className="eyebrow mt-8 text-white/80"
-        >
+        <p ref={subtitleRef} className="eyebrow mt-8 text-white/80">
           Luxury Homes &nbsp;•&nbsp; Premium Interiors &nbsp;•&nbsp; Bespoke Design
         </p>
       </div>
-
-      {failedCount > 0 && (
-        <div className="absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-red-500/90 px-5 py-2 text-xs font-medium text-white shadow-lg">
-          {failedCount} of {images.length} sequence frame
-          {failedCount === 1 ? "" : "s"} failed to load — check the browser
-          Network tab for the exact 404 URL and confirm that file exists in
-          public/sequence.
-        </div>
-      )}
 
       <div
         ref={scrollCueRef}

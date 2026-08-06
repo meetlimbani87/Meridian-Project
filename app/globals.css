@@ -44,6 +44,17 @@ html {
   background-color: #CBA46E;
 }
 
+/* GSAP's ScrollTrigger pin wraps the pinned Hero in its own spacer div to
+   reserve scroll space, and that spacer has no background of its own. If
+   its calculated height ever doesn't perfectly match the Hero's actual
+   rendered height (most visible on mobile, where viewport height can shift
+   as browser chrome shows/hides), the gap falls through to plain white
+   instead of the site's dark theme. Pin it to charcoal explicitly so any
+   such gap is invisible regardless of the underlying timing/height cause. */
+.pin-spacer {
+  background: var(--color-charcoal);
+}
+
 body {
   color: var(--color-charcoal);
   background: var(--color-charcoal);
