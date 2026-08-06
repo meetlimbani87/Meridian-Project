@@ -125,42 +125,42 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
 
   useEffect(() => {
     let resizeTimer: ReturnType<typeof setTimeout>;
-    function handleResize() {
-      clearTimeout(resizeTimer);
-      // Debounced: mobile browsers fire several resize events in a row as
-      // their address bar shows/hides during scroll, and refreshing
-      // ScrollTrigger on every single one is wasteful and can itself cause
-      // the pin measurement to briefly desync.
-      resizeTimer = setTimeout(() => ScrollTrigger.refresh(), 150);
+    let isScrolling = false;
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+
+    function onScrollState() {
+      isScrolling = true;
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        isScrolling = false;
+      }, 250);
     }
+    window.addEventListener("scroll", onScrollState, { passive: true });
+
+    function handleResize() {
+      if (isScrolling) return;
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => ScrollTrigger.refresh(), 200);
+    }
+
     window.addEventListener("resize", handleResize);
     window.addEventListener("orientationchange", handleResize);
 
-    // The pin's scroll distance is locked in as soon as the hero video is
-    // ready, but the sections *below* the hero (showcase images, project
-    // thumbnails, etc.) can still be loading in and changing the page's
-    // total height at that point. Nothing was watching for that, so the
-    // pin-spacer stayed sized for the shorter, stale document — leaving a
-    // gap at the bottom (and, once anything reflows horizontally, the
-    // right) until some unrelated resize event — e.g. a mobile browser's
-    // address bar collapsing once you scroll far enough — happened to
-    // trigger a refresh. A ResizeObserver on <body> catches every one of
-    // those late layout changes directly, so the fix no longer depends on
-    // the user scrolling first.
     let roTimer: ReturnType<typeof setTimeout>;
     const ro = new ResizeObserver(() => {
+      if (isScrolling) return;
       clearTimeout(roTimer);
-      roTimer = setTimeout(() => ScrollTrigger.refresh(), 150);
+      roTimer = setTimeout(() => ScrollTrigger.refresh(), 250);
     });
     ro.observe(document.body);
 
-    // Also catches any remaining async assets (fonts, below-the-fold
-    // images not covered by the observer timing) once everything settles.
     window.addEventListener("load", handleResize);
 
     return () => {
       clearTimeout(resizeTimer);
       clearTimeout(roTimer);
+      clearTimeout(scrollTimeout);
+      window.removeEventListener("scroll", onScrollState);
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("orientationchange", handleResize);
       window.removeEventListener("load", handleResize);
@@ -174,67 +174,42 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     const video = videoRef.current;
     if (!section || !video || !video.duration) return;
 
-    // GSAP takes a one-time snapshot of this section's computed width the
-    // instant the pin below first engages, and locks pin.style.width /
-    // max-width to that exact value for as long as it stays pinned — later
-    // ScrollTrigger.refresh() calls do not update it again. `ready` becoming
-    // true is also the signal page.tsx uses to lift body's overflow:hidden
-    // (set during the loading screen), and that toggle happens in a
-    // *sibling* component's separate effect, so there's no guarantee it has
-    // already committed by the time this runs — the snapshot can land
-    // either just before or just after the scrollbar appears, giving an
-    // inconsistent locked-in width (a gap on one side, or overflow on the
-    // other). Resolving it here first, then forcing a synchronous layout
-    // flush, guarantees the snapshot GSAP takes below is already correct.
     if (document.body.style.overflow === "hidden") {
       document.body.style.overflow = "";
     }
     void document.body.offsetHeight; // flush layout synchronously
 
+    const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+
     const ctx = gsap.context(() => {
       const st = ScrollTrigger.create({
         trigger: section,
         start: "top top",
-        // A function, not a static string — ScrollTrigger.refresh() (fired
-        // on resize/orientation change) re-invokes this against the
-        // *current* viewport height, instead of forever reusing whatever
-        // height happened to be current the moment the trigger was first
-        // created. Without this, a resize after mount (e.g. DevTools
-        // device toolbar, or a mobile browser's address bar changing the
-        // viewport) leaves the pin release point stale, so the pin can let
-        // go too early and expose the spacer's raw background as a gap.
         end: () => `+=${window.innerHeight * getScrollHeightMultiplier()}`,
         pin: true,
         pinSpacing: true,
-        // "fixed" (the default) removes the pinned element from normal flow
-        // and pads it to compensate for the browser's default scrollbar
-        // width — but our scrollbar is deliberately thinner (see the
-        // scrollbar-width: thin rule in globals.css), so that compensation
-        // over-pads and leaves a bare strip of background on the right for
-        // as long as the hero is pinned. "transform" keeps the pinned
-        // element inside normal flow instead, so it just inherits the
-        // actual current width and never needs that compensation at all.
-        pinType: "transform",
-        scrub: 0.4,
+        pinType: isTouch ? "fixed" : "transform",
+        scrub: isTouch ? true : 0.4,
         anticipatePin: 1,
         invalidateOnRefresh: true,
         onUpdate: (self) => {
           const progress = self.progress;
 
-          // Drive the video across the full scroll range by seeking it,
-          // rather than swapping canvas frames.
-          video.currentTime = clamp(progress * video.duration, 0, video.duration);
+          if (video.duration) {
+            const targetTime = clamp(progress * video.duration, 0, video.duration);
+            if (Math.abs(video.currentTime - targetTime) > 0.02) {
+              video.currentTime = targetTime;
+            }
+          }
 
-          // Title + subtitle hold fully visible early on, then fade out by
-          // roughly a third of the way through the scroll range.
-          const TEXT_HOLD = 0.05; // stays fully visible until ~5% scroll
-          const TEXT_FADE_END = 0.42; // fully faded by ~42% scroll
+          const TEXT_HOLD = 0.05;
+          const TEXT_FADE_END = 0.42;
           const textProgress = clamp(
             (progress - TEXT_HOLD) / (TEXT_FADE_END - TEXT_HOLD),
             0,
             1
           );
-          const ease = 1 - Math.pow(1 - textProgress, 3); // cubic ease-out
+          const ease = 1 - Math.pow(1 - textProgress, 3);
 
           if (leftTextRef.current) {
             gsap.set(leftTextRef.current, {
@@ -297,21 +272,21 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         style={{ opacity: 0.38 }}
       />
 
-      <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-6 text-center">
-        <h1 className="select-none font-display text-[12vw] font-light leading-[0.95] text-white sm:text-[8vw] lg:text-[6.2vw]">
-          <span className="block overflow-hidden">
-            <span ref={leftTextRef} className="inline-block">
+      <div className="relative z-10 flex h-full w-full max-w-full flex-col items-center justify-center px-4 sm:px-6 text-center overflow-hidden">
+        <h1 className="select-none font-display text-[8.5vw] xs:text-[8vw] font-light leading-[0.98] text-white sm:text-[8vw] lg:text-[6.2vw] max-w-full">
+          <span className="block overflow-hidden max-w-full">
+            <span ref={leftTextRef} className="inline-block max-w-full">
               Crafting Luxury
             </span>
           </span>
-          <span className="block overflow-hidden">
-            <span ref={rightTextRef} className="inline-block italic">
+          <span className="block overflow-hidden max-w-full">
+            <span ref={rightTextRef} className="inline-block italic max-w-full">
               Living Experiences
             </span>
           </span>
         </h1>
 
-        <p ref={subtitleRef} className="eyebrow mt-8 text-white/80">
+        <p ref={subtitleRef} className="eyebrow mt-8 text-white/80 max-w-xs sm:max-w-none mx-auto leading-relaxed">
           Luxury Homes &nbsp;•&nbsp; Premium Interiors &nbsp;•&nbsp; Bespoke Design
         </p>
       </div>

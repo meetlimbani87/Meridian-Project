@@ -34,7 +34,7 @@ export default function Home() {
       <CustomCursor />
       <Navbar />
 
-      <main id="top">
+      <main id="top" className="relative w-full max-w-full overflow-x-hidden">
         <Hero onReady={() => setLoaded(true)} onProgress={setProgress} />
 
         <Showcases />

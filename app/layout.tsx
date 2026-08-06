@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import "./globals.css";
 
@@ -16,6 +16,12 @@ const manrope = Manrope({
   weight: ["300", "400", "500", "600", "700"],
   display: "swap",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
 
 export const metadata: Metadata = {
   title: "Meridian Estates | Crafting Luxury Living Experiences",
@@ -42,8 +48,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${manrope.variable}`}>
-      <body className="font-body bg-ivory text-charcoal">{children}</body>
+    <html lang="en" className={`${fraunces.variable} ${manrope.variable} overflow-x-hidden w-full`}>
+      <body className="font-body bg-charcoal text-charcoal w-full max-w-full overflow-x-hidden relative">{children}</body>
     </html>
   );
 }

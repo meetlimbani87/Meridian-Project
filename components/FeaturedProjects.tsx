@@ -13,8 +13,8 @@ const easeExpo = [0.16, 1, 0.3, 1] as const;
 
 export default function FeaturedProjects() {
   return (
-    <section id="projects" className="bg-charcoal px-6 py-24 lg:px-10" data-cursor-theme="dark">
-      <div className="mx-auto max-w-7xl">
+    <section id="projects" className="bg-charcoal px-6 py-24 lg:px-10 overflow-hidden" data-cursor-theme="dark">
+      <div className="mx-auto max-w-7xl overflow-hidden">
         <motion.h2
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -29,12 +29,12 @@ export default function FeaturedProjects() {
           {PROJECTS.map((project, i) => (
             <motion.div
               key={project.name}
-              initial={{ opacity: 0, x: 40 }}
-              whileInView={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.3 }}
               transition={{ duration: 0.9, ease: easeExpo, delay: i * 0.1 }}
               data-cursor-hover
-              className="group relative h-[420px] w-[300px] shrink-0 overflow-hidden rounded-sm sm:w-[340px]"
+              className="group relative h-[420px] w-[280px] shrink-0 overflow-hidden rounded-sm sm:w-[340px]"
             >
               <img
                 src={project.image}

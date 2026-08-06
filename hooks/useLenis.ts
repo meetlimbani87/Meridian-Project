@@ -7,6 +7,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
+  ScrollTrigger.config({ ignoreMobileResize: true });
 }
 
 /**
@@ -17,12 +18,20 @@ export function useLenis() {
   const lenisRef = useRef<Lenis | null>(null);
 
   useEffect(() => {
+    const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+
+    if (isTouch) {
+      // On mobile touch devices, native momentum scrolling is hardware-accelerated.
+      // Bypassing Lenis touch handling entirely prevents main-thread scroll fighting.
+      return;
+    }
+
     const lenis = new Lenis({
       duration: 1.1,
       easing: (t: number) => 1 - Math.pow(1 - t, 3),
       smoothWheel: true,
       wheelMultiplier: 1,
-      touchMultiplier: 1.2,
+      touchMultiplier: 0,
     });
     lenisRef.current = lenis;
 

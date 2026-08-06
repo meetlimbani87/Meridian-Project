@@ -14,12 +14,12 @@ const easeExpo = [0.16, 1, 0.3, 1] as const;
 
 export default function ShowcaseSection({ item }: { item: ShowcaseItem }) {
   return (
-    <div className="bg-charcoal" data-cursor-theme="dark">
-      <div className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-16 md:grid-cols-2 md:gap-16 md:py-24 lg:px-10">
+    <div className="bg-charcoal overflow-hidden" data-cursor-theme="dark">
+      <div className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-16 md:grid-cols-2 md:gap-16 md:py-24 lg:px-10 overflow-hidden">
         <motion.div
-          initial={{ opacity: 0, x: item.reverse ? 64 : -64 }}
-          whileInView={{ opacity: 1, x: 0 }}
-          viewport={{ once: true, amount: 0.35 }}
+          initial={{ opacity: 0, y: 32 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.25 }}
           transition={{ duration: 1.1, ease: easeExpo }}
           className={`overflow-hidden rounded-sm ${item.reverse ? "md:order-2" : "md:order-1"}`}
         >
