@@ -179,13 +179,6 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     }
     void document.body.offsetHeight; // flush layout synchronously
 
-    const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-
-    if (isTouch && video) {
-      video.loop = true;
-      video.play().catch(() => {});
-    }
-
     const ctx = gsap.context(() => {
       const st = ScrollTrigger.create({
         trigger: section,
@@ -193,17 +186,21 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         end: () => `+=${window.innerHeight * getScrollHeightMultiplier()}`,
         pin: true,
         pinSpacing: true,
-        pinType: isTouch ? "fixed" : "transform",
-        scrub: isTouch ? true : 0.4,
+        pinType: "transform",
+        scrub: 0.4,
         anticipatePin: 1,
         invalidateOnRefresh: true,
         onUpdate: (self) => {
           const progress = self.progress;
 
-          if (!isTouch && video.duration) {
+          if (video.duration) {
             const targetTime = clamp(progress * video.duration, 0, video.duration);
-            if (Math.abs(video.currentTime - targetTime) > 0.02) {
-              video.currentTime = targetTime;
+            if (Math.abs(video.currentTime - targetTime) > 0.03) {
+              if ("fastSeek" in video && typeof (video as any).fastSeek === "function") {
+                (video as any).fastSeek(targetTime);
+              } else {
+                video.currentTime = targetTime;
+              }
             }
           }
 
@@ -266,8 +263,6 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         className="absolute inset-0 h-full w-full object-cover"
         poster="/poster.jpg"
         muted
-        loop
-        autoPlay
         playsInline
         preload="auto"
         aria-hidden="true"
