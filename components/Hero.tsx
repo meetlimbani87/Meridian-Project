@@ -181,6 +181,11 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
 
     const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
+    if (isTouch && video) {
+      video.loop = true;
+      video.play().catch(() => {});
+    }
+
     const ctx = gsap.context(() => {
       const st = ScrollTrigger.create({
         trigger: section,
@@ -195,7 +200,7 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         onUpdate: (self) => {
           const progress = self.progress;
 
-          if (video.duration) {
+          if (!isTouch && video.duration) {
             const targetTime = clamp(progress * video.duration, 0, video.duration);
             if (Math.abs(video.currentTime - targetTime) > 0.02) {
               video.currentTime = targetTime;
@@ -261,6 +266,8 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         className="absolute inset-0 h-full w-full object-cover"
         poster="/poster.jpg"
         muted
+        loop
+        autoPlay
         playsInline
         preload="auto"
         aria-hidden="true"
