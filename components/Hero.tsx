@@ -35,7 +35,19 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
   const scrollCueRef = useRef<HTMLDivElement | null>(null);
   const readyFired = useRef(false);
 
-  // Canvas drawing helper for mobile image sequence
+  // Initialize and keep canvas internal pixel buffer sized properly without clearing mid-scroll
+  function setupCanvasSize() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (Math.abs(canvas.width - w) > 10 || Math.abs(canvas.height - h) > 10) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  // Canvas drawing helper for mobile image sequence — never mutates canvas width/height during frame renders
   function renderCanvasFrame(index: number) {
     const canvas = canvasRef.current;
     const img = imagesRef.current[index];
@@ -43,12 +55,8 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const cw = canvas.clientWidth || window.innerWidth;
-    const ch = canvas.clientHeight || window.innerHeight;
-    if (canvas.width !== cw || canvas.height !== ch) {
-      canvas.width = cw;
-      canvas.height = ch;
-    }
+    const cw = canvas.width || window.innerWidth;
+    const ch = canvas.height || window.innerHeight;
 
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
@@ -84,6 +92,8 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     let objectUrl: string | null = null;
 
     if (isMobile) {
+      setupCanvasSize();
+
       // MOBILE: Fetch sequence manifest and preload sampled JPEG frames for 60fps canvas blitting
       async function loadMobileSequence() {
         try {
@@ -112,7 +122,7 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
                 renderCanvasFrame(0);
               }
 
-              if (loadedCount >= Math.min(12, sampledFiles.length) && !readyFired.current) {
+              if (loadedCount >= Math.min(10, sampledFiles.length) && !readyFired.current) {
                 readyFired.current = true;
                 onProgress?.(100);
                 setReady(true);
@@ -220,7 +230,10 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
       if (isScrolling) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        if (isMobile) renderCanvasFrame(currentFrameRef.current);
+        if (isMobile) {
+          setupCanvasSize();
+          renderCanvasFrame(currentFrameRef.current);
+        }
         ScrollTrigger.refresh();
       }, 200);
     }
@@ -268,8 +281,8 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
         end: () => `+=${window.innerHeight * getScrollHeightMultiplier()}`,
         pin: true,
         pinSpacing: true,
-        pinType: "transform",
-        scrub: 0.4,
+        pinType: isMobile ? "fixed" : "transform",
+        scrub: isMobile ? true : 0.4,
         anticipatePin: 1,
         invalidateOnRefresh: true,
         onUpdate: (self) => {
