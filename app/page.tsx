@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import DebugOverlay from "@/components/DebugOverlay";
 import Hero from "@/components/Hero";
 import Navbar from "@/components/Navbar";
 import LoadingScreen from "@/components/LoadingScreen";
@@ -28,6 +29,7 @@ export default function Home() {
 
   return (
     <>
+      <DebugOverlay />
       <LoadingScreen progress={progress} loaded={loaded} />
       <CustomCursor />
       <Navbar />

@@ -174,6 +174,23 @@ export default function Hero({ onReady, onProgress }: HeroProps) {
     const video = videoRef.current;
     if (!section || !video || !video.duration) return;
 
+    // GSAP takes a one-time snapshot of this section's computed width the
+    // instant the pin below first engages, and locks pin.style.width /
+    // max-width to that exact value for as long as it stays pinned — later
+    // ScrollTrigger.refresh() calls do not update it again. `ready` becoming
+    // true is also the signal page.tsx uses to lift body's overflow:hidden
+    // (set during the loading screen), and that toggle happens in a
+    // *sibling* component's separate effect, so there's no guarantee it has
+    // already committed by the time this runs — the snapshot can land
+    // either just before or just after the scrollbar appears, giving an
+    // inconsistent locked-in width (a gap on one side, or overflow on the
+    // other). Resolving it here first, then forcing a synchronous layout
+    // flush, guarantees the snapshot GSAP takes below is already correct.
+    if (document.body.style.overflow === "hidden") {
+      document.body.style.overflow = "";
+    }
+    void document.body.offsetHeight; // flush layout synchronously
+
     const ctx = gsap.context(() => {
       const st = ScrollTrigger.create({
         trigger: section,
