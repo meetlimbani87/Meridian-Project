@@ -1,114 +1,80 @@
-# Meridian Estates — Luxury Real Estate Landing Page
+# Meridian — Luxury Estate Site
 
-A production-ready Next.js 15 (App Router) + TypeScript + Tailwind landing
-page built around a scroll-scrubbed canvas image sequence, in the style of
-Apple product pages.
+A single-page marketing site for a luxury architecture/real-estate brand, built with Next.js (App Router), Tailwind CSS, Framer Motion, GSAP/ScrollTrigger, and Lenis smooth scroll. The centerpiece is a scroll-scrubbed image-sequence hero (like a video, but frame-by-frame canvas drawing).
 
-## How the sequence is loaded (important)
+This file is meant to stay up to date as the project evolves — it's the map of how everything fits together, plus a running log of the non-obvious bugs we've already hunted down so they don't get reintroduced.
 
-Earlier versions of this project guessed at the frame count (600) and file
-extension. That guessing was fragile and caused 404s. **It's been replaced
-with a server API that reads your actual `public/sequence` folder and
-reports back exactly what's there.**
+---
 
-- `app/api/sequence-manifest/route.ts` runs on the server, reads
-  `public/sequence`, filters to image files (`.png`, `.jpg`, `.jpeg`,
-  `.webp`, `.avif`), and naturally sorts them by the number in each
-  filename.
-- `hooks/useSequenceManifest.ts` fetches that list once on page load.
-- Everything downstream — the hero's frame count, the showcase/testimonial/
-  project sample images — is driven by that real list. There is no
-  hardcoded frame count and no assumed extension anywhere in the app.
-
-**This means:** whatever you put in `public/sequence/` — 300 frames or 600,
-`.jpg` or `.png`, zero-padded or not, with or without gaps — is exactly
-what plays. If a frame is missing, that specific frame just won't appear in
-the manifest; it won't 404 during playback because it's never requested.
-
-### If the hero looks blank or a red warning banner appears
-
-That means either:
-1. `public/sequence/` has no image files in it → you'll see a clear
-   "Sequence not found" screen telling you so, or
-2. Some frames loaded but individual ones failed (e.g. a corrupted file)
-   → a small red banner on the hero reports how many.
-
-To debug a specific failure, open the browser's Network tab, look for the
-failing request, and check that the exact URL shown matches a real file in
-`public/sequence` (case, extension, and all).
-
-## Getting your frames in place
-
-Drop your full sequence into `public/sequence/`, e.g.:
-
-```
-public/sequence/001.jpg
-public/sequence/002.jpg
-...
-public/sequence/300.jpg   (or however many you have)
-```
-
-Two placeholder frames from your reference images are already in there so
-the app runs out of the box — replace them with your real sequence.
-Frames should be a consistent aspect ratio and reasonably compressed —
-hundreds of uncompressed PNGs will be heavy to preload; `.jpg` or `.webp`
-at ~80% quality is a good default.
-
-## Getting started
+## Running it locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Then open http://localhost:3000. If you change the contents of
-`public/sequence/`, just refresh the page — the manifest API always reads
-the folder fresh, no restart required.
+Open `http://localhost:3000`. The image sequence lives in `public/sequence/` and must contain exactly frames `001.jpg` … `600.jpg` — nothing else (see the changelog below for why that matters).
 
-## Project structure
+---
 
-```
-app/
-  api/sequence-manifest/route.ts   # reads public/sequence off disk
-  layout.tsx, page.tsx, globals.css
-components/          # Hero, Navbar, Showcases, Statistics, etc.
-hooks/                # useSequenceManifest, useImageSequence, useLenis
-lib/                  # SequenceManifestContext, small utilities
-public/sequence/      # your image sequence — any count, any extension
-```
+## How the page is put together
 
-## How the scroll-scrubbed hero works
+`app/page.tsx` is the single entry point. It renders, top to bottom:
 
-1. `useSequenceManifest` fetches the real file list from the server.
-2. `useImageSequence` preloads every frame in that list with 12-way
-   concurrency, reporting 0–100 progress used by `LoadingScreen`.
-3. Once loaded, `Hero` sets up a single `ScrollTrigger` that **pins** the
-   hero section for `4.5 × window.innerHeight` of scroll distance.
-4. On every scroll update, `ScrollTrigger`'s `progress` (0–1) maps to a
-   frame index (0 to frame-count − 1) and draws it to a `<canvas>` with
-   cover-fit + DPR scaling — no `<video>` element anywhere.
-5. The title holds fully visible for the first ~5% of scroll, then fades
-   out completing by ~42% of the scroll range — i.e. roughly frame
-   200–300 of a 600-frame sequence — rather than disappearing immediately.
-   This is proportional to whatever frame count you actually have.
-6. When the scroll range ends, `ScrollTrigger` releases the pin
-   automatically and the page continues scrolling normally.
+| Component | What it does |
+|---|---|
+| `LoadingScreen` | Full-screen overlay showing the "Meridian" wordmark and a load percentage until every hero frame has downloaded. |
+| `CustomCursor` | Desktop-only replacement cursor (dot + trailing ring). Color-adapts per section — see "Theming" below. |
+| `Navbar` | Fixed top nav, links to each section by id. |
+| `Hero` | Full-viewport canvas that scrubs through the 600-frame image sequence as you scroll, pinned via GSAP ScrollTrigger. |
+| `Showcases` → `ShowcaseSection` | Alternating image/text panels (e.g. "Form Follows Feeling"). |
+| `FeaturedProjects` | Horizontal-scrolling row of project cards, pulling still frames out of the same image sequence. |
+| `WhyChooseUs` | Light-themed value-prop section. |
+| `Statistics` | Light-themed stat counters (250+ homes, 18+ years, etc). |
+| `Testimonials` | Light-themed client quote cards. |
+| `CTA` | Dark closing call-to-action band. |
+| `Footer` | Site footer. |
+| `BackToTop` | Floating button, appears after scrolling past the hero. |
 
-## Design tokens
+### Data flow for the hero image sequence
 
-Derived from the supplied reference frames (travertine stone exterior,
-warm brass door and fixtures, deep olive palms, soft charcoal interior
-shadow):
+1. `hooks/useSequenceManifest.ts` calls `app/api/sequence-manifest/route.ts`, which reads `public/sequence/` on the server and returns a sorted list of frame filenames.
+2. `hooks/useImageSequence.ts` takes that list and preloads every frame as an `Image()` object with a small concurrency pool (12 at a time), reporting `progress` (0–100) as they resolve.
+3. `Hero.tsx` receives the loaded `images` array and draws the frame matching the current scroll position onto a `<canvas>`, driven by a GSAP ScrollTrigger with `scrub: true`.
+4. `FeaturedProjects.tsx` reuses the same loaded frames to pull a representative still for each project card (via a `fraction` — e.g. 0.15 means "the frame 15% of the way through the sequence").
 
-- `ivory` #F6F3EC, `charcoal` #16130F, `brass` #A9814A / `brass-light`
-  #CBA46E, `olive` #454B39, `taupe` #8C8272, `stone` #C9BFA8
-- Display face: **Fraunces** (soft, editorial serif) · Body/utility:
-  **Manrope**
+### Smooth scroll + ScrollTrigger sync
 
-## Notes / next steps
+`hooks/useLenis.ts` sets up Lenis for eased scrolling and ticks it from `gsap.ticker` every frame, and explicitly calls `ScrollTrigger.update` on every Lenis scroll event so the pinned Hero canvas stays in perfect sync with the smoothed scroll position instead of fighting it.
 
-- Replace the two placeholder images in `public/sequence/` with your real
-  sequence.
-- Showcase, testimonial, and featured-project imagery currently pick
-  frames proportionally from your sequence as stand-ins — swap in real
-  project photography when you have it.
+### Theming (dark/light sections + the cursor)
+
+The palette is just two tones: `charcoal` (dark) and `ivory` (light) — see `tailwind.config.ts`. Every section explicitly sets its own `bg-charcoal` or `bg-ivory`; nothing relies on the page's base background.
+
+Each section also carries a `data-cursor-theme="dark"` or `"light"` attribute. `CustomCursor.tsx` checks what's under the pointer every frame via `document.elementFromPoint()`, walks up to the nearest themed ancestor, and swaps its own color to match: **brass/gold on dark sections, charcoal on light sections.** This is deliberately *not* done with `mix-blend-mode: difference` — that approach is fragile here because Framer Motion's heavy use of `transform`/`translate3d` throughout the page pushes elements onto separate GPU compositing layers, and blend modes don't reliably read through those layer boundaries.
+
+If you add a new section, remember to tag it with `data-cursor-theme` — otherwise the cursor falls back to "dark" (brass) styling over it.
+
+---
+
+## Changelog / bugs already fixed
+
+Keeping this list because most of these are the kind of bug that's easy to accidentally reintroduce.
+
+- **Loading screen stuck at 100% forever.** Two causes, both fixed:
+  - `public/sequence/` had two stray oversized PNGs (`001.png`, `300.png`) alongside the proper `001.jpg`–`600.jpg` set, making the total 602 instead of 600. The progress percentage used `Math.round`, which can read "100%" while a frame is still genuinely in flight. Removed the stray files and switched to `Math.floor` so the display can't claim done before it is. Also added a 15s per-image timeout in `useImageSequence.ts` so one stalled request can never hang the whole page again.
+  - The loading screen was gated on `loaded && heroReady`, where `heroReady` only flipped once Hero successfully painted a canvas frame — an unnecessary second point of failure. Now it's gated on `loaded` alone (`app/page.tsx`).
+- **Wheel scroll barely worked / felt glitchy.** `gsap.ticker` reports elapsed time in *seconds*, but `lenis.raf()` expects a millisecond timestamp. Missing the `* 1000` conversion meant Lenis's eased position barely advanced each frame. Fixed in `hooks/useLenis.ts`, along with adding `lenis.on("scroll", ScrollTrigger.update)` so the pinned hero doesn't fight the smoothing.
+- **"Form Follows Feeling" section rendering with a light background instead of dark.** `bg-charcoal` was applied to the same div as `max-w-7xl mx-auto`, so it only painted the centered content box, not the full section width. Split into an outer full-bleed wrapper (`bg-charcoal`) with an inner centered content grid (`ShowcaseSection.tsx`).
+- **Featured Projects cards showing ghosted/doubled text and clipped labels.** Each card had two overlapping name labels (always-visible + hover-reveal) stacked in the same spot, and a `-ml-16` negative margin "fanned deck" layout was clipping the next card's label behind the previous one. Simplified to one label per card in a normal (non-overlapping) row (`FeaturedProjects.tsx`).
+- **Default browser scrollbar clashing with the design.** Styled to a thin brass thumb on a transparent track (`app/globals.css`), and switched the page's base `html`/`body` background from ivory to charcoal so the scrollbar gutter doesn't show a stray white sliver next to the mostly-dark page (every section already sets its own explicit background, so this was safe).
+- **Custom cursor not inverting correctly over light sections.** Originally used `mix-blend-mode: difference`, which turned out unreliable given how many transformed/animated elements are on the page. Replaced with the explicit `data-cursor-theme` lookup described above, and colored brass on dark sections / charcoal on light ones.
+- **Vercel build failing with `Module '"@/lib/utils"' has no exported member 'SequenceExtension'`.** `lib/SequenceExtensionContext.tsx` was leftover dead code from an earlier iteration of the sequence-loading approach (before the manifest-API described above existed) — it referenced a type that no longer exists in `lib/utils.ts`, and nothing in the app actually imported it anymore. Deleted the file.
+
+---
+
+## Notes for future changes
+
+- If the sequence frame count ever changes, double check `public/sequence/` has no stray files — the API route (`app/api/sequence-manifest/route.ts`) just returns whatever's in that folder, sorted.
+- New sections should follow the existing pattern: an explicit `bg-charcoal`/`bg-ivory` class plus a matching `data-cursor-theme`.
+- Colors live in `tailwind.config.ts` (`charcoal`, `ivory`, `brass`, `brass-light`, `stone`) — change them there rather than hardcoding hex values in components.
