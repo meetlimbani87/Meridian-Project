@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-ivory: #F6F3EC;
+  --color-charcoal: #16130F;
+  --color-brass: #A9814A;
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-power3: cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-charcoal);
+  scroll-behavior: auto;
+  color-scheme: dark;
+}
+
+/* Custom scrollbar: thin brass thumb on a soft charcoal track, matching
+   the site's palette instead of the default OS gray bar. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-brass) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-brass);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #CBA46E;
+}
+
+body {
+  color: var(--color-charcoal);
+  background: var(--color-charcoal);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-brass);
+  color: var(--color-ivory);
+}
+
+/* Custom cursor: hide native cursor only where our cursor is active (desktop, fine pointer) */
+@media (hover: hover) and (pointer: fine) {
+  .cursor-active,
+  .cursor-active a,
+  .cursor-active button {
+    cursor: none;
+  }
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.glass-dark {
+  background: rgba(22, 19, 15, 0.55);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.eyebrow {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.text-reveal-mask {
+  overflow: hidden;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brass);
+  outline-offset: 3px;
+}
