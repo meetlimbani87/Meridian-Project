@@ -49,6 +49,21 @@ export default function ShowcaseSection({ item }: { item: ShowcaseItem }) {
           <p className="mt-6 max-w-md text-[1.02rem] leading-relaxed text-stone">
             {item.description}
           </p>
+
+          {item.eyebrow === "Luxury Architecture" && (
+            <div className="mt-8">
+              <a
+                href="/architecture"
+                data-cursor-hover
+                className="inline-flex items-center gap-3 rounded-full border border-brass-light/40 bg-brass-light/10 px-6 py-2.5 text-xs font-medium uppercase tracking-[0.14em] text-brass-light transition-all hover:bg-brass-light hover:text-charcoal"
+              >
+                <span>Explore Architectural Blueprint</span>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              </a>
+            </div>
+          )}
         </motion.div>
       </div>
     </div>
