@@ -41,11 +41,11 @@ export default function ArchitecturePage() {
         {/* Interactive 16:9 Blueprint X-Ray Reveal Section */}
         <section className="mx-auto max-w-7xl px-6 lg:px-10 mb-24">
           <BlueprintReveal
-            renderSrc="/architecture/villa-render.jpg"
-            blueprintSrc="/architecture/villa-blueprint.jpg"
+            renderSrc="/architecture/villa-render.png"
+            blueprintSrc="/architecture/villa-blueprint.png"
             title="Meridian Grand Residence — Front Elevation"
             subtitle="Hover your cursor over the 16:9 frame to inspect the underlying architectural blueprint wireframe in real-time."
-            lensRadius={125}
+            lensRadius={190}
           />
         </section>
 

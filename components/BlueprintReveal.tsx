@@ -11,20 +11,12 @@ interface BlueprintRevealProps {
   lensRadius?: number;
 }
 
-interface TrailNode {
-  id: number;
-  pxX: number;
-  pxY: number;
-  radius: number;
-  opacity: number;
-}
-
 export default function BlueprintReveal({
-  renderSrc = "/architecture/villa-render.jpg",
-  blueprintSrc = "/architecture/villa-blueprint.jpg",
+  renderSrc = "/architecture/villa-render.png",
+  blueprintSrc = "/architecture/villa-blueprint.png",
   title = "Grand Estate Facade",
   subtitle = "Architectural Blueprint & Render Inspection",
-  lensRadius = 125,
+  lensRadius = 190,
 }: BlueprintRevealProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const targetPosRef = useRef({ pxX: 0, pxY: 0 });
@@ -32,14 +24,9 @@ export default function BlueprintReveal({
 
   const [mousePos, setMousePos] = useState({ pxX: 0, pxY: 0 });
   const [isHovered, setIsHovered] = useState(false);
-  const [trail, setTrail] = useState<TrailNode[]>([]);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [mobileMode, setMobileMode] = useState<"render" | "blueprint" | "split">("split");
   const [splitPercent, setSplitPercent] = useState(50);
-
-  // Unique mask IDs to avoid collisions if multiple instances exist
-  const maskIdRef = useRef(`blueprint-mask-${Math.random().toString(36).substring(2, 9)}`);
-  const filterIdRef = useRef(`feather-filter-${Math.random().toString(36).substring(2, 9)}`);
 
   // Detect touch devices to provide a mobile-optimized control fallback
   useEffect(() => {
@@ -47,13 +34,12 @@ export default function BlueprintReveal({
     setIsTouchDevice(isTouch);
   }, []);
 
-  // Smooth lerp loop & ultra-slow trail decay animation
+  // Smooth lerp loop for silky cursor movement
   useEffect(() => {
     if (isTouchDevice) return;
     let animId: number;
 
     function renderLoop() {
-      // 1. Smoothly interpolate cursor position for floating silky movement
       const target = targetPosRef.current;
       const current = currentPosRef.current;
 
@@ -61,40 +47,17 @@ export default function BlueprintReveal({
       const dy = target.pxY - current.pxY;
 
       if (Math.abs(dx) > 0.05 || Math.abs(dy) > 0.05) {
-        current.pxX += dx * 0.12; // Eased floating cursor movement
-        current.pxY += dy * 0.12;
+        current.pxX += dx * 0.16; // Eased floating cursor movement
+        current.pxY += dy * 0.16;
         setMousePos({ pxX: current.pxX, pxY: current.pxY });
-
-        // Add trail node along smoothed cursor path
-        setTrail((prev) => [
-          ...prev.slice(-100), // Keep up to 100 trail circles for long linger
-          {
-            id: Date.now() + Math.random(),
-            pxX: current.pxX,
-            pxY: current.pxY,
-            radius: lensRadius, // EXACT SAME RADIUS AS MAIN CIRCLE
-            opacity: 0.88,
-          },
-        ]);
       }
-
-      // 2. Decay trail opacity ultra-slowly (0.0022 per frame = ~4.5 seconds linger)
-      setTrail((prevTrail) =>
-        prevTrail
-          .map((pt) => ({
-            ...pt,
-            radius: lensRadius, // STAYS EXACT SAME RADIUS
-            opacity: pt.opacity - 0.0022, // Ultra slow fade
-          }))
-          .filter((pt) => pt.opacity > 0.01)
-      );
 
       animId = requestAnimationFrame(renderLoop);
     }
 
     animId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animId);
-  }, [isTouchDevice, lensRadius]);
+  }, [isTouchDevice]);
 
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
     if (isTouchDevice) return;
@@ -126,9 +89,13 @@ export default function BlueprintReveal({
   function handleMouseLeave() {
     if (!isTouchDevice) {
       setIsHovered(false);
-      setTrail([]);
     }
   }
+
+  // Smooth Seamless Eased Radial Mask: 8-stop cubic curve eliminating any visible edge boundary
+  const pcSpotlightMask = isHovered
+    ? `radial-gradient(circle ${lensRadius}px at ${mousePos.pxX}px ${mousePos.pxY}px, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 35%, rgba(0,0,0,0.92) 50%, rgba(0,0,0,0.78) 65%, rgba(0,0,0,0.55) 78%, rgba(0,0,0,0.28) 88%, rgba(0,0,0,0.08) 95%, transparent 100%)`
+    : "radial-gradient(circle 0px at 0px 0px, transparent 0%, transparent 100%)";
 
   // Clip Path for Mobile Split Mode
   const mobileClipPath =
@@ -160,78 +127,23 @@ export default function BlueprintReveal({
           />
         </div>
 
-        {/* PC Exclusive Feathered Ultra-Slow Fading Trail Blueprint Mask */}
-        {!isTouchDevice && (
-          <svg className="absolute inset-0 h-full w-full pointer-events-none z-10">
-            <defs>
-              {/* Soft Feather Filter */}
-              <filter id={filterIdRef.current} x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="14" />
-              </filter>
-
-              <mask id={maskIdRef.current}>
-                {/* Black background masks out the blueprint */}
-                <rect x="0" y="0" width="100%" height="100%" fill="black" />
-
-                {/* Feathered Group for soft edge blending */}
-                <g filter={`url(#${filterIdRef.current})`}>
-                  {/* Trailing circles staying exact same size as main circle */}
-                  {trail.map((pt) => (
-                    <circle
-                      key={pt.id}
-                      cx={pt.pxX}
-                      cy={pt.pxY}
-                      r={pt.radius}
-                      fill="white"
-                      opacity={pt.opacity}
-                    />
-                  ))}
-
-                  {/* Main active cursor reveal circle */}
-                  {isHovered && (
-                    <circle
-                      cx={mousePos.pxX}
-                      cy={mousePos.pxY}
-                      r={lensRadius}
-                      fill="white"
-                    />
-                  )}
-                </g>
-              </mask>
-            </defs>
-
-            {/* Blueprint image rendered inside SVG using feathered dynamic mask */}
-            <image
-              href={blueprintSrc}
-              width="100%"
-              height="100%"
-              preserveAspectRatio="xMidYMid slice"
-              mask={`url(#${maskIdRef.current})`}
-            />
-          </svg>
-        )}
-
-        {/* Mobile / Touch Overlay Layer */}
-        {isTouchDevice && (
-          <div
-            className="absolute inset-0 h-full w-full pointer-events-none transition-[clip-path] duration-150 ease-out"
-            style={{ clipPath: mobileClipPath }}
-          >
-            <Image
-              src={blueprintSrc}
-              alt={`${title} Blueprint`}
-              fill
-              sizes="(max-width: 1600px) 100vw, 1600px"
-              priority
-              className="object-cover"
-            />
-          </div>
-        )}
-
-        {/* Minimal Static 16:9 Tag */}
-        <div className="absolute top-4 left-4 z-20 flex items-center gap-2 rounded-full bg-black/50 px-3.5 py-1 text-xs text-white/80 backdrop-blur-md border border-white/10">
-          <span className="h-1.5 w-1.5 rounded-full bg-brass-light" />
-          <span className="eyebrow text-[0.65rem] tracking-wider text-white/90">16:9 Blueprint X-Ray</span>
+        {/* Blueprint Wireframe Layer: Masked with smooth 8-stop seamless radial mask */}
+        <div
+          className="absolute inset-0 h-full w-full pointer-events-none transition-opacity duration-300"
+          style={{
+            WebkitMaskImage: isTouchDevice ? mobileClipPath : pcSpotlightMask,
+            maskImage: isTouchDevice ? mobileClipPath : pcSpotlightMask,
+            opacity: !isTouchDevice && !isHovered ? 0 : 1,
+          }}
+        >
+          <Image
+            src={blueprintSrc}
+            alt={`${title} Blueprint`}
+            fill
+            sizes="(max-width: 1600px) 100vw, 1600px"
+            priority
+            className="object-cover"
+          />
         </div>
       </div>
 
