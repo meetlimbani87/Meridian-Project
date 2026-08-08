@@ -4,6 +4,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CustomCursor from "@/components/CustomCursor";
+import LoadingScreen from "@/components/LoadingScreen";
 import BlueprintReveal from "@/components/BlueprintReveal";
 import Divider from "@/components/Divider";
 import { useLenis } from "@/hooks/useLenis";
@@ -13,10 +14,11 @@ export default function ArchitecturePage() {
 
   return (
     <>
+      <LoadingScreen />
       <CustomCursor />
       <Navbar />
 
-      <main className="relative min-h-screen w-full max-w-full overflow-x-hidden bg-charcoal pt-32 pb-24 text-white">
+      <main className="relative min-h-screen w-full max-w-full overflow-x-hidden bg-charcoal pt-44 md:pt-48 pb-24 text-white">
         {/* Architectural Hero Header */}
         <section className="mx-auto max-w-7xl px-6 lg:px-10 mb-16">
           <div className="flex flex-col items-start space-y-6 max-w-3xl">
@@ -39,13 +41,13 @@ export default function ArchitecturePage() {
         </section>
 
         {/* Interactive 16:9 Blueprint X-Ray Reveal Section */}
-        <section className="mx-auto max-w-7xl px-6 lg:px-10 mb-24">
+        <section className="mx-auto max-w-[1450px] px-4 lg:px-8 mb-24">
           <BlueprintReveal
-            renderSrc="/architecture/villa-render.png"
-            blueprintSrc="/architecture/villa-blueprint.png"
+            renderSrc="/architecture/villa-blueprint.png"
+            blueprintSrc="/architecture/villa-render.png"
             title="Meridian Grand Residence — Front Elevation"
-            subtitle="Hover your cursor over the 16:9 frame to inspect the underlying architectural blueprint wireframe in real-time."
-            lensRadius={190}
+            subtitle="Hover your cursor over the 16:9 frame to inspect the underlying photorealistic render in real-time."
+            lensRadius={270}
           />
         </section>
 

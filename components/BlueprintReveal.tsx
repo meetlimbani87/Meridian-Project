@@ -12,11 +12,11 @@ interface BlueprintRevealProps {
 }
 
 export default function BlueprintReveal({
-  renderSrc = "/architecture/villa-render.png",
-  blueprintSrc = "/architecture/villa-blueprint.png",
+  renderSrc = "/architecture/villa-blueprint.png",
+  blueprintSrc = "/architecture/villa-render.png",
   title = "Grand Estate Facade",
   subtitle = "Architectural Blueprint & Render Inspection",
-  lensRadius = 190,
+  lensRadius = 270,
 }: BlueprintRevealProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const targetPosRef = useRef({ pxX: 0, pxY: 0 });
@@ -24,19 +24,30 @@ export default function BlueprintReveal({
 
   const [mousePos, setMousePos] = useState({ pxX: 0, pxY: 0 });
   const [isHovered, setIsHovered] = useState(false);
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
-  const [mobileMode, setMobileMode] = useState<"render" | "blueprint" | "split">("split");
-  const [splitPercent, setSplitPercent] = useState(50);
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Detect touch devices to provide a mobile-optimized control fallback
+  // Click/Tap Toggle State: "xray" (Interactive Spotlight / Mobile Golden Slider) vs "clicked" (100% Full Building Photo Render)
+  const [viewMode, setViewMode] = useState<"xray" | "clicked">("xray");
+
+  // Mobile Golden Scanner Line state (starts off-screen left)
+  const [mobileScanPercent, setMobileScanPercent] = useState(-8);
+  const [isTouchDragging, setIsTouchDragging] = useState(false);
+
+  // Detect mobile viewports reliably so PC/desktop mouse devices always get the circular spotlight hover animation
   useEffect(() => {
-    const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-    setIsTouchDevice(isTouch);
+    function checkMobile() {
+      const isCoarse = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+      const isTouchWidth = window.innerWidth < 768 && "ontouchstart" in window;
+      setIsMobile(isCoarse || isTouchWidth);
+    }
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Smooth lerp loop for silky cursor movement
+  // PC Smooth lerp loop for floating cursor spotlight
   useEffect(() => {
-    if (isTouchDevice) return;
+    if (isMobile) return;
     let animId: number;
 
     function renderLoop() {
@@ -47,7 +58,7 @@ export default function BlueprintReveal({
       const dy = target.pxY - current.pxY;
 
       if (Math.abs(dx) > 0.05 || Math.abs(dy) > 0.05) {
-        current.pxX += dx * 0.16; // Eased floating cursor movement
+        current.pxX += dx * 0.16;
         current.pxY += dy * 0.16;
         setMousePos({ pxX: current.pxX, pxY: current.pxY });
       }
@@ -57,10 +68,44 @@ export default function BlueprintReveal({
 
     animId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animId);
-  }, [isTouchDevice]);
+  }, [isMobile]);
 
+  // Mobile Continuous Back-and-Forth (Ping-Pong) Slow Luxury Golden Line Slider Sweep
+  useEffect(() => {
+    if (!isMobile || viewMode !== "xray") return;
+    let animId: number;
+    let currentPercent = -8;
+    let direction = 1; // 1 = moving right, -1 = moving left
+
+    function scanLoop() {
+      if (!isTouchDragging) {
+        currentPercent += direction * 0.14; // Ultra-slow smooth luxury sweep speed
+
+        if (direction === 1 && currentPercent >= 108) {
+          currentPercent = 108;
+          direction = -1; // Reverse direction to sweep back left
+        } else if (direction === -1 && currentPercent <= -8) {
+          currentPercent = -8;
+          direction = 1; // Reverse direction to sweep right
+        }
+
+        setMobileScanPercent(currentPercent);
+      }
+      animId = requestAnimationFrame(scanLoop);
+    }
+
+    animId = requestAnimationFrame(scanLoop);
+    return () => cancelAnimationFrame(animId);
+  }, [isMobile, isTouchDragging, viewMode]);
+
+  // Handle Click / Tap to Toggle between X-Ray Animation Mode and Full Building Photo Render
+  function handleContainerClick() {
+    setViewMode((prev) => (prev === "xray" ? "clicked" : "xray"));
+  }
+
+  // PC Mouse Handlers
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (isTouchDevice) return;
+    if (isMobile) return;
     const container = containerRef.current;
     if (!container) return;
 
@@ -72,7 +117,7 @@ export default function BlueprintReveal({
   }
 
   function handleMouseEnter(e: React.MouseEvent<HTMLDivElement>) {
-    if (!isTouchDevice) {
+    if (!isMobile) {
       const container = containerRef.current;
       if (container) {
         const rect = container.getBoundingClientRect();
@@ -87,39 +132,81 @@ export default function BlueprintReveal({
   }
 
   function handleMouseLeave() {
-    if (!isTouchDevice) {
+    if (!isMobile) {
       setIsHovered(false);
     }
   }
 
-  // Smooth Seamless Eased Radial Mask: 8-stop cubic curve eliminating any visible edge boundary
-  const pcSpotlightMask = isHovered
+  // Mobile Touch Handlers
+  function handleTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    if (!isMobile) return;
+    setIsTouchDragging(true);
+    updateTouchPos(e);
+  }
+
+  function handleTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    if (!isMobile) return;
+    updateTouchPos(e);
+  }
+
+  function handleTouchEnd() {
+    if (!isMobile) return;
+    setTimeout(() => setIsTouchDragging(false), 1200);
+  }
+
+  function updateTouchPos(e: React.TouchEvent<HTMLDivElement>) {
+    const container = containerRef.current;
+    if (!container || !e.touches[0]) return;
+    const rect = container.getBoundingClientRect();
+    const x = e.touches[0].clientX - rect.left;
+    const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setMobileScanPercent(percent);
+  }
+
+  // Compute exact styles for Overlay Layer (villa-render.png - Actual Building Photo Render)
+  const isClickedFullRender = viewMode === "clicked";
+
+  const overlayMask = isClickedFullRender
+    ? "none"
+    : isMobile
+    ? "none"
+    : isHovered
     ? `radial-gradient(circle ${lensRadius}px at ${mousePos.pxX}px ${mousePos.pxY}px, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 35%, rgba(0,0,0,0.92) 50%, rgba(0,0,0,0.78) 65%, rgba(0,0,0,0.55) 78%, rgba(0,0,0,0.28) 88%, rgba(0,0,0,0.08) 95%, transparent 100%)`
     : "radial-gradient(circle 0px at 0px 0px, transparent 0%, transparent 100%)";
 
-  // Clip Path for Mobile Split Mode
-  const mobileClipPath =
-    mobileMode === "blueprint"
-      ? "inset(0 0 0 0)"
-      : mobileMode === "render"
-      ? "inset(0 100% 0 0)"
-      : `inset(0 0 0 ${100 - splitPercent}%)`;
+  const overlayClipPath = isClickedFullRender
+    ? "none"
+    : isMobile
+    ? `inset(0 0 0 ${Math.max(0, Math.min(100, mobileScanPercent))}%)`
+    : "none";
+
+  const overlayOpacity = isClickedFullRender
+    ? 1
+    : isMobile
+    ? 1
+    : isHovered
+    ? 1
+    : 0;
 
   return (
     <div className="w-full space-y-6">
       {/* 16:9 Interactive Container */}
       <div
         ref={containerRef}
+        onClick={handleContainerClick}
         onMouseMove={handleMouseMove}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="relative w-full aspect-[16/9] overflow-hidden rounded-2xl border border-white/10 bg-charcoal shadow-2xl select-none"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="group relative w-full aspect-[16/9] overflow-hidden rounded-2xl border border-white/10 bg-charcoal shadow-2xl select-none cursor-pointer"
       >
-        {/* Base Layer: Realistic Render Image */}
+        {/* Base Layer: Photorealistic Villa Photo Render (villa-render.png - Always visible underneath) */}
         <div className="absolute inset-0 h-full w-full">
           <Image
             src={renderSrc}
-            alt={`${title} Render`}
+            alt={`${title} Photo Render`}
             fill
             sizes="(max-width: 1600px) 100vw, 1600px"
             priority
@@ -127,77 +214,34 @@ export default function BlueprintReveal({
           />
         </div>
 
-        {/* Blueprint Wireframe Layer: Masked with smooth 8-stop seamless radial mask */}
+        {/* Top Overlay Layer: Architectural Blueprint Wireframe (villa-blueprint.png - Revealed inside X-Ray spotlight/scanner) */}
         <div
           className="absolute inset-0 h-full w-full pointer-events-none transition-opacity duration-300"
           style={{
-            WebkitMaskImage: isTouchDevice ? mobileClipPath : pcSpotlightMask,
-            maskImage: isTouchDevice ? mobileClipPath : pcSpotlightMask,
-            opacity: !isTouchDevice && !isHovered ? 0 : 1,
+            WebkitMaskImage: overlayMask,
+            maskImage: overlayMask,
+            clipPath: overlayClipPath,
+            opacity: overlayOpacity,
           }}
         >
           <Image
             src={blueprintSrc}
-            alt={`${title} Blueprint`}
+            alt={`${title} Blueprint Wireframe`}
             fill
             sizes="(max-width: 1600px) 100vw, 1600px"
             priority
             className="object-cover"
           />
         </div>
+
+        {/* Mobile Exclusive Clean Sleek Zero-Lag Vertical Golden Slider Line */}
+        {isMobile && viewMode === "xray" && (
+          <div
+            className="absolute top-0 bottom-0 z-30 w-[2.5px] -translate-x-[1px] bg-brass-light shadow-[0_0_15px_rgba(212,175,55,0.9),0_0_30px_rgba(212,175,55,0.6)] pointer-events-none"
+            style={{ left: `${mobileScanPercent}%` }}
+          />
+        )}
       </div>
-
-      {/* Mobile & Touch Controls */}
-      {isTouchDevice && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-xl bg-charcoal-light/60 p-4 border border-white/10 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <span className="eyebrow text-[0.68rem] text-white/70">View Mode:</span>
-            <div className="flex rounded-lg bg-black/40 p-1 border border-white/10">
-              <button
-                type="button"
-                onClick={() => setMobileMode("render")}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  mobileMode === "render" ? "bg-brass-light text-charcoal" : "text-white/70 hover:text-white"
-                }`}
-              >
-                Render
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileMode("split")}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  mobileMode === "split" ? "bg-brass-light text-charcoal" : "text-white/70 hover:text-white"
-                }`}
-              >
-                50/50 Split
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileMode("blueprint")}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  mobileMode === "blueprint" ? "bg-brass-light text-charcoal" : "text-white/70 hover:text-white"
-                }`}
-              >
-                Blueprint
-              </button>
-            </div>
-          </div>
-
-          {mobileMode === "split" && (
-            <div className="flex items-center gap-3 w-full sm:w-auto min-w-[200px]">
-              <span className="eyebrow text-[0.62rem] text-white/60">Split Position</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={splitPercent}
-                onChange={(e) => setSplitPercent(Number(e.target.value))}
-                className="w-full accent-brass-light cursor-pointer"
-              />
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Caption & Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
